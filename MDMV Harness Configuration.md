@@ -617,3 +617,67 @@ npx impeccable install --providers=opencode --scope=project --project --yes  # i
 4. **Graphify** só age se `graphify-out/graph.json` existir (rodar `graphify .` 1×).
 5. **impeccable** traz binário de ~16MB → gitignorar `scripts/bin/` e `scripts/data/`.
 6. **Config não é hot-reload** → reiniciar o OpenCode após editar.
+
+---
+
+## 13. Arquitetura do pipeline e cherry-picks (CenterOS)
+
+> Origem: análise do vídeo *"CenterOS is the Best Free AI Harness Out There"* (John Elder).
+> O CenterOS é um **scaffold Markdown cloneável** (não um runtime de agente). Ele **valida a
+> tese 90-10** ("code = determinístico; AI = juízo") e rendeu 3 cherry-picks. Não é adotado
+> inteiro (seria um segundo dono de estado e bootstrap always-on).
+
+### 13.1 Camadas (correção do diagrama)
+
+O orquestrador **não** é o `crsdd-fabro`, e a harness **não** é uma etapa entre ele e o `casv-rust`.
+
+| Camada | O que é | Onde |
+|---|---|---|
+| **Orquestrador** | `fabro` (`fabro-sh/fabro`) — runs duráveis, grafos `.fabro`, checkpoints, gates de aprovação (`fabro run/events/logs/approve/steer`) | binário `fabro` |
+| **Harness (transversal)** | ambiente que envolve **todos** os nós: OpenCode + Spec-kit + mdmv-linter + subagentes + `STATE.md` | `~/.config/opencode/`, `.opencode/`, `.specify/` |
+| **Nós/etapas** | Contaminated Room (`crsdd-fabro`) → Vault (planejado) → Clean Room (`crsdd-flow`) → execução (`casv-rust`) | repos |
+
+- **`crsdd-fabro` é um nó de comando**, não o orquestrador: `validator-fabro` emite um JSON
+  canônico (`exit_code`, `report_path`, `handoff_path`, `escalation_count`) para o grafo Fabro.
+- **Spec-kit é camada própria** (workflow de spec), separada do mdmv-linter (gate de lint/CI).
+
+```
+ORQUESTRADOR: fabro ── grafos .fabro, runs duráveis, checkpoints, aprovação
+   │
+   ├─ HARNESS TRANSVERSAL: OpenCode · Spec-kit · mdmv-linter · subagentes · STATE.md
+   │
+   └─ NÓS: crsdd-fabro (intake LLM-free) → Vault → crsdd-flow (Clean Room) → casv-rust
+```
+
+### 13.2 Cherry-picks e encaixe
+
+| Cherry-pick | Projeto(s) | Etapa | Estado |
+|---|---|---|---|
+| **1. `LOG.md` append-only** | **crsdd-fabro** (piloto) + **mdmv-linter** (convenção) | Nó determinístico + transversal | **Implementado** |
+| **2. `CONTEXT.md` por diretório** | casv-rust, crsdd-fabro, macro-repo | Nós + harness | Planejado |
+| **3. Framing 90-10** | mdmv-linter, casv-rust, crsdd-fabro | Documentação | Registrado |
+
+### 13.3 Cherry-pick 1 (implementado)
+
+**`mdmv-linter` — dona da convenção:**
+- `docs/log-convention.md` — especificação (formato, statuses, append-only).
+- `assets/LOG.template.md` — template.
+- `scripts/check-logs.sh` — validador (heading, status fechado, campos obrigatórios,
+  monotonicidade; ignora comentários HTML).
+- `scripts/log.sh` — helper de append (timestamp UTC determinístico).
+
+**`crsdd-fabro` — piloto:**
+- Vendoriza os 4 artefatos; cria `LOG.md` (root) + `crates/validator-{core,cli,fabro}/LOG.md`.
+- **Gate 16** em `scripts/ci.sh`: `16/16 logs — LOG.md append-only convention`
+  (passa vacuamente enquanto não há `LOG.md`).
+- Documentado no `AGENTS.md` (seção *LOG.md (append-only component logs)*).
+
+**Formato:** `## <ISO-8601-UTC> [<status>]` + `- run:` / `- actor:` / `- summary:`;
+status ∈ `ran-start` | `ran-complete` | `ran-failed`. Complementa (não substitui) o event log
+do Fabro (`fabro events`/`fabro logs`) e o `.wiki/raw/` do harness.
+
+### 13.4 Onde **não** encaixa
+
+- Orquestração **dentro** do `crsdd-fabro` (é nó; duplicaria o Fabro).
+- Spec-kit **dentro** do `mdmv-linter` (camadas separadas).
+- `BOOTSTRAP.md` always-on (não adotar; manter `STATE.md` lazy).
