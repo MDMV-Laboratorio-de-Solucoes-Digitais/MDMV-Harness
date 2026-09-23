@@ -662,10 +662,12 @@ ORQUESTRADOR: fabro ── grafos .fabro, runs duráveis, checkpoints, aprovaç�
              5. speckit.converge ↔ speckit.implement    (loop até convergir)
 ```
 
-**TDD × casv-rust:** o `speckit.tasks` (com testes-antes-de-implementar e vertical slices) é a
-política da Clean Room; o `casv-rust` entra **entre** o esqueleto (`todo!()`) e a execução dos
-testes. Testes de aceitação ficam no gate do Fabro; proptest/unit são os gates internos do
-casv-rust — complementares.
+**TDD × casv-rust (verificado):** o `speckit.tasks` (testes-antes-de-implementar + vertical
+slices) é a política da Clean Room. O casv-rust **gera testes de forma 100% determinística**
+(`phase8_functional` — template, zero LLM) a partir de doc-comments `# Invariant:` e os escreve
+em `tests/`; ele **preenche a implementação** (`todo!()`), **não** os testes. Limite atual: o
+casv **não ingere spec** (contratos vêm só de `# Invariant:`) e é *generate-then-verify* (sem
+ordem red-green). Ver §13.4.
 
 ### 13.2 Cherry-picks e encaixe
 
@@ -694,7 +696,26 @@ casv-rust — complementares.
 status ∈ `ran-start` | `ran-complete` | `ran-failed`. Complementa (não substitui) o event log
 do Fabro (`fabro events`/`fabro logs`) e o `.wiki/raw/` do harness.
 
-### 13.4 Onde **não** encaixa
+### 13.4 casv-rust: geração de testes TDD (verificado)
+
+Fonte: código compilado do `casv-rust` (verificado 2026-09-23).
+
+| Capacidade | Estado | Evidência |
+|---|---|---|
+| Geração de testes **determinística** (zero LLM): `# Invariant:` → `proptest!` em `tests/` | **Existe** | `src/pipeline/phase8_functional.rs` (sem `Llm`/`prompt`) |
+| Estratégias derivadas dos tipos dos parâmetros (`any::<T>()`) | Existe | `phase8_functional.rs` |
+| Falha de teste = rollback, **sem retry** | Existe | `FUNCTIONAL_GATE_MAX_RETRIES = 0` |
+| **Ingestão de spec** (ler `spec.md`/requisitos) | **Não existe** | 0 hits em `src/` |
+| **Ordem TDD** (testes antes da implementação / red-green) | **Não existe** | pipeline é generate→verify (phase3 LLM → phase8) |
+| Seed pinning (onde há LLM: phase3, `temperature = 0.1`) | Não existe | 0 hits de `seed` em `src/` |
+
+**Implicação para a Clean Room:** "TDD determinístico a partir de uma spec" exige um passo
+**intermediário do agente** (Vault/Spec-kit) que traduza a spec em contratos `# Invariant:`
+co-locados nas funções-alvo; a partir daí o casv gera os testes deterministicamente. Sem esse
+passo, não há caminho spec→teste no casv. (Feature futura no casv: fase de ingestão de spec +
+ordem red-green — requer nova spec/research/FR.)
+
+### 13.5 Onde **não** encaixa
 
 - Lógica de **orquestração dentro do `crsdd-fabro`** — as rooms são estágios; quem orquestra
   (runs, retomada, aprovação) é o **Fabro**.
