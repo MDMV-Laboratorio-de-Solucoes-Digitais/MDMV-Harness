@@ -627,27 +627,45 @@ npx impeccable install --providers=opencode --scope=project --project --yes  # i
 > tese 90-10** ("code = determinístico; AI = juízo") e rendeu 3 cherry-picks. Não é adotado
 > inteiro (seria um segundo dono de estado e bootstrap always-on).
 
-### 13.1 Camadas (correção do diagrama)
+### 13.1 Camadas (modelo corrigido)
 
-O orquestrador **não** é o `crsdd-fabro`, e a harness **não** é uma etapa entre ele e o `casv-rust`.
+O **orquestrador é o `fabro`**; a **harness é transversal**; e o **`crsdd-fabro` é o repo que
+implementa as três rooms** (Contaminated agora; **Vault e Clean Room depois, no mesmo repo**),
+como **estágios sequenciais** — não nós irmãos em repos separados.
 
 | Camada | O que é | Onde |
 |---|---|---|
-| **Orquestrador** | `fabro` (`fabro-sh/fabro`) — runs duráveis, grafos `.fabro`, checkpoints, gates de aprovação (`fabro run/events/logs/approve/steer`) | binário `fabro` |
-| **Harness (transversal)** | ambiente que envolve **todos** os nós: OpenCode + Spec-kit + mdmv-linter + subagentes + `STATE.md` | `~/.config/opencode/`, `.opencode/`, `.specify/` |
-| **Nós/etapas** | Contaminated Room (`crsdd-fabro`) → Vault (planejado) → Clean Room (`crsdd-flow`) → execução (`casv-rust`) | repos |
+| **Orquestrador** | `fabro` (`fabro-sh/fabro`) — runs duráveis, grafos `.fabro`, checkpoints, aprovação (`fabro run/events/logs/approve/steer`) | binário `fabro` |
+| **Harness (transversal)** | ambiente que envolve tudo: OpenCode (agents + subagents + config + skills) + Spec-kit + mdmv-linter + `STATE.md` | `~/.config/opencode/`, `.opencode/`, `.specify/` |
+| **Pipeline (rooms)** | `crsdd-fabro`: **Contaminated Room → Vault → Clean Room** (estágios sequenciais) | repo `crsdd-fabro` |
+| **Motor de execução** | `casv-rust` — preenche `todo!()`/`unimplemented!()` (gap filler, 4 gates próprios) | repo `casv-rust` |
 
-- **`crsdd-fabro` é um nó de comando**, não o orquestrador: `validator-fabro` emite um JSON
-  canônico (`exit_code`, `report_path`, `handoff_path`, `escalation_count`) para o grafo Fabro.
-- **Spec-kit é camada própria** (workflow de spec), separada do mdmv-linter (gate de lint/CI).
+- `crsdd-fabro` **hospeda as três rooms**; hoje **só a Contaminated está implementada**
+  (o `validator-fabro` é o nó de comando *dessa* room). Vault e Clean Room são planejadas.
+- `mdmv-linter` é **um componente de governança** da harness (lint/CI/presets/fixture) — **não**
+  é a harness inteira. O repo **`MDMV-Harness`** é a documentação do ambiente.
+- Spec-kit é camada própria (workflow de spec), separada do mdmv-linter.
 
 ```
 ORQUESTRADOR: fabro ── grafos .fabro, runs duráveis, checkpoints, aprovação
    │
-   ├─ HARNESS TRANSVERSAL: OpenCode · Spec-kit · mdmv-linter · subagentes · STATE.md
+   ├─ HARNESS TRANSVERSAL: OpenCode (agents+subagents+config+skills) · Spec-kit · mdmv-linter · STATE.md
    │
-   └─ NÓS: crsdd-fabro (intake LLM-free) → Vault → crsdd-flow (Clean Room) → casv-rust
+   └─ PIPELINE em crsdd-fabro (rooms sequenciais):
+        Contaminated Room  [IMPLEMENTADO · LLM-free] ── contrato versionado ──▶
+        Vault              [planejado] ── Spec-kit: constitution→specify→clarify→plan→checklist→tasks→analyze
+        Clean Room         [planejado] ── TDD estrito:
+             1. escrever TESTES da vertical slice      (agente)
+             2. speckit.implement → esqueleto + todo!() (agente)
+             3. casv-rust preenche os todo!()           (repo casv-rust · 4 gates)
+             4. rodar TESTES de aceitação               (gate do Fabro)
+             5. speckit.converge ↔ speckit.implement    (loop até convergir)
 ```
+
+**TDD × casv-rust:** o `speckit.tasks` (com testes-antes-de-implementar e vertical slices) é a
+política da Clean Room; o `casv-rust` entra **entre** o esqueleto (`todo!()`) e a execução dos
+testes. Testes de aceitação ficam no gate do Fabro; proptest/unit são os gates internos do
+casv-rust — complementares.
 
 ### 13.2 Cherry-picks e encaixe
 
@@ -678,6 +696,7 @@ do Fabro (`fabro events`/`fabro logs`) e o `.wiki/raw/` do harness.
 
 ### 13.4 Onde **não** encaixa
 
-- Orquestração **dentro** do `crsdd-fabro` (é nó; duplicaria o Fabro).
-- Spec-kit **dentro** do `mdmv-linter` (camadas separadas).
+- Lógica de **orquestração dentro do `crsdd-fabro`** — as rooms são estágios; quem orquestra
+  (runs, retomada, aprovação) é o **Fabro**.
+- Spec-kit **dentro do `mdmv-linter`** (camadas separadas).
 - `BOOTSTRAP.md` always-on (não adotar; manter `STATE.md` lazy).
